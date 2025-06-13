@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 
-from config import INDEX_NAME
+from config import INDEX_NAME, INDEX_NAME_N_GRAMS
 from utils import get_es_client
 
 setup_logging()
@@ -46,7 +46,7 @@ async def search(search_query: str, skip: int = 0, limit: int = 10, year: str | 
             }
         ]
     res = es.search(
-        index=INDEX_NAME,
+        index=INDEX_NAME_N_GRAMS,
         query=query,
         from_=skip,
         size=limit,
@@ -87,7 +87,7 @@ async def get_docs_per_year_count(search_query: str):
             }
         }
         res = es.search(
-            index=INDEX_NAME,
+            index=INDEX_NAME_N_GRAMS,
             body={
                 "query": query,
                 "aggs": {
