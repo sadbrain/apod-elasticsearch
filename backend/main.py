@@ -19,25 +19,57 @@ app.add_middleware(
     allow_credentials=True)
 
 @app.get("/api/v1/regular_search")
-async def search(search_query: str, skip: int = 0, limit: int = 10) -> dict:
-    es = get_es_client(max_retries=5, sleep_time=5)
+async def search(search_query: str, skip: int = 0, limit: int = 10, year: str | None = None) -> dict:
+    es = get_es_client(max_retries=1, sleep_time=0)
+    query =  {
+        "bool": {
+            "must": [
+                {
+                    "multi_match": {
+                        "query": search_query,
+                        "fields": ["title^2", "explanation"]
+                    }
+                }
+            ]
+        }
+    }
+    if year:
+        query["bool"]["filter"] = [
+            {
+                "range": {
+                    "date": {
+                        "gte": f"{year}-01-01",
+                        "lte": f"{year}-12-31",
+                        "format": "yyyy-MM-dd"
+                    }
+                }
+            }
+        ]
     res = es.search(
         index=INDEX_NAME,
-        body={
-            "query": {
-                "multi_match": {
-                    "query": search_query,
-                    "fields": ["title^2", "explanation"],
-                }
-            },
-            "from": skip,
-            "size": limit
-        },
-        filter_path=["hits.hits._source", "hits.hits._score"]
+        query=query,
+        from_=skip,
+        size=limit,
+        filter_path=[
+            "hits.hits._source",
+            "hits.hits._score",
+            "hits.total"
+        ]
     )
+    total_hits = get_total_hits(res)
+    max_pages = calculate_max_page(total_hits, limit)
     hits = res.get("hits", {}).get("hits", [])
-    return {"hits": hits}
+    return {
+        "max_pages": max_pages,
+        "hits": hits
+    }
+def get_total_hits(res: dict) -> int:
+    return res.get("hits", {}).get("total", {}).get("value", 0)
 
+def calculate_max_page(total_hits: int, limit: int) -> int:
+    if total_hits == 0:
+        return 0
+    return (total_hits + limit - 1) // limit
 @app.get("/api/v1/get_docs_per_year_count", response_model=None)
 async def get_docs_per_year_count(search_query: str):
     try:
@@ -73,7 +105,6 @@ async def get_docs_per_year_count(search_query: str):
         )
         return {"docs_per_year": extract_docs_per_year(res)}
     except Exception as e:
-        # Return plain text in HTML format
         return HTMLResponse(content=f"Internal Server Error: {e}", status_code=500)
 
 def extract_docs_per_year(res: dict) -> dict:
